@@ -12,7 +12,6 @@ const vertexShader = `
   uniform float uTime;
   uniform float uDistortion;
 
-  // Classic Perlin 3D Noise by Stefan Gustavson
   vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
   vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
   vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
@@ -68,7 +67,10 @@ const vertexShader = `
     vUv = uv;
     vNormal = normal;
     
-    float noise = cnoise(position * 1.5 + uTime * 0.4);
+    // Slower, more ominous movement
+    float noise = cnoise(position * 2.0 + uTime * 0.1);
+    
+    // Sharp spikes during glitch
     vec3 displacedPosition = position + normal * noise * uDistortion;
     
     vPosition = displacedPosition;
@@ -84,69 +86,172 @@ const fragmentShader = `
   uniform float uTime;
   uniform vec3 uColorNeon;
   uniform vec3 uColorSand;
+  uniform float uGlitchIntensity;
 
   void main() {
     float sandGrit = fract(sin(dot(vUv.xy ,vec2(12.9898,78.233))) * 43758.5453) * 0.15;
     
-    float crackPattern = sin(vPosition.x * 8.0 + uTime) * sin(vPosition.y * 8.0) * sin(vPosition.z * 8.0);
-    float glowThreshold = smoothstep(0.7, 1.0, crackPattern);
+    // Fractal-like cracks
+    float crackPattern = sin(vPosition.x * 12.0 + uTime) * sin(vPosition.y * 12.0) * sin(vPosition.z * 12.0);
+    float glowThreshold = smoothstep(0.8 - uGlitchIntensity*0.5, 1.0, crackPattern);
     
     vec3 finalColor = mix(uColorSand + sandGrit, uColorNeon, glowThreshold);
     
     float rim = 1.0 - max(dot(vNormal, vec3(0.0, 0.0, 1.0)), 0.0);
-    rim = smoothstep(0.5, 1.0, rim);
-    finalColor += uColorNeon * rim * 0.6;
+    rim = smoothstep(0.6, 1.0, rim);
+    finalColor += uColorNeon * rim * (0.2 + uGlitchIntensity);
+
+    // Random scanline effect inside the material
+    float scanline = sin(vPosition.y * 100.0 - uTime * 20.0) * 0.05 * uGlitchIntensity;
+    finalColor += scanline;
 
     gl_FragColor = vec4(finalColor, 1.0);
   }
 `;
 
-const SignalArtifact = ({ isGlitching }) => {
+// --- WEB AUDIO API DRONE ---
+class AudioController {
+  constructor() {
+    this.ctx = null;
+    this.osc1 = null;
+    this.osc2 = null;
+    this.gain = null;
+    this.initialized = false;
+  }
+  
+  init() {
+    if (this.initialized) return;
+    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    
+    // Low ominous drone
+    this.osc1 = this.ctx.createOscillator();
+    this.osc2 = this.ctx.createOscillator();
+    this.gain = this.ctx.createGain();
+    
+    this.osc1.type = 'sine';
+    this.osc1.frequency.setValueAtTime(43.65, this.ctx.currentTime); // C1 ish
+    
+    this.osc2.type = 'sawtooth';
+    this.osc2.frequency.setValueAtTime(44.0, this.ctx.currentTime); // Slight detune for beating
+    
+    this.gain.gain.setValueAtTime(0, this.ctx.currentTime);
+    
+    this.osc1.connect(this.gain);
+    this.osc2.connect(this.gain);
+    this.gain.connect(this.ctx.destination);
+    
+    this.osc1.start();
+    this.osc2.start();
+    this.initialized = true;
+  }
+
+  play() {
+    if(!this.initialized) this.init();
+    if(this.ctx.state === 'suspended') this.ctx.resume();
+    this.gain.gain.linearRampToValueAtTime(0.15, this.ctx.currentTime + 2);
+  }
+
+  triggerGlitch() {
+    if(!this.initialized) return;
+    // Sudden spike in frequency and volume
+    this.osc2.frequency.setValueAtTime(150, this.ctx.currentTime);
+    this.osc2.frequency.exponentialRampToValueAtTime(44.0, this.ctx.currentTime + 0.5);
+    this.gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+    this.gain.gain.exponentialRampToValueAtTime(0.15, this.ctx.currentTime + 0.5);
+  }
+}
+
+const audioCtrl = new AudioController();
+
+// --- 3D ARTIFACT ---
+const SignalArtifact = ({ isGlitching, onInteract }) => {
   const meshRef = useRef();
+  const groupRef = useRef();
   
   const uniforms = useMemo(() => ({
     uTime: { value: 0 },
-    uDistortion: { value: 0.2 },
+    uDistortion: { value: 0.1 },
+    uGlitchIntensity: { value: 0.0 },
     uColorNeon: { value: new THREE.Color('#FF4500') }, 
-    uColorSand: { value: new THREE.Color('#111111') }  
+    uColorSand: { value: new THREE.Color('#050505') }  
   }), []);
 
   useFrame((state) => {
     const { clock } = state;
     if (meshRef.current) {
       meshRef.current.material.uniforms.uTime.value = clock.getElapsedTime();
-      meshRef.current.rotation.y = clock.getElapsedTime() * 0.15;
-      meshRef.current.rotation.z = clock.getElapsedTime() * 0.05;
       
-      if (isGlitching || Math.random() > 0.98) {
-        meshRef.current.material.uniforms.uDistortion.value = 0.4 + Math.random() * 0.5;
+      // Monolith rotation
+      groupRef.current.rotation.y = clock.getElapsedTime() * 0.1;
+      groupRef.current.rotation.x = Math.sin(clock.getElapsedTime() * 0.2) * 0.2;
+      
+      if (isGlitching) {
+        meshRef.current.material.uniforms.uDistortion.value = 0.5 + Math.random() * 0.8;
+        meshRef.current.material.uniforms.uGlitchIntensity.value = 1.0;
+        groupRef.current.position.x = (Math.random() - 0.5) * 0.1;
       } else {
         meshRef.current.material.uniforms.uDistortion.value = THREE.MathUtils.lerp(
           meshRef.current.material.uniforms.uDistortion.value, 
-          0.2, 
+          0.1, 
+          0.05
+        );
+        meshRef.current.material.uniforms.uGlitchIntensity.value = THREE.MathUtils.lerp(
+          meshRef.current.material.uniforms.uGlitchIntensity.value, 
+          0.0, 
           0.1
         );
+        groupRef.current.position.x = 0;
       }
     }
   });
 
   return (
-    <mesh ref={meshRef} scale={1.5}>
-      <icosahedronGeometry args={[1, 64]} />
-      <shaderMaterial 
-        vertexShader={vertexShader}
-        fragmentShader={fragmentShader}
-        uniforms={uniforms}
-        wireframe={false}
-      />
-    </mesh>
+    <group ref={groupRef}>
+      {/* Invisible larger hit box for easier clicking */}
+      <mesh onClick={onInteract} visible={false}>
+        <sphereGeometry args={[2.5, 16, 16]} />
+        <meshBasicMaterial />
+      </mesh>
+      
+      {/* The main Monolith/Artifact */}
+      <mesh ref={meshRef} scale={[1, 1.8, 1]}>
+        {/* An octahedron gives a very ancient, alien monolith vibe */}
+        <octahedronGeometry args={[1, 4]} />
+        <shaderMaterial 
+          vertexShader={vertexShader}
+          fragmentShader={fragmentShader}
+          uniforms={uniforms}
+          wireframe={false}
+        />
+      </mesh>
+      
+      {/* Orbiting rings */}
+      <mesh rotation={[Math.PI/2, 0, 0]} scale={2}>
+        <torusGeometry args={[1, 0.01, 16, 100]} />
+        <meshBasicMaterial color={isGlitching ? "#FF4500" : "#333"} transparent opacity={isGlitching ? 0.8 : 0.2} />
+      </mesh>
+    </group>
   );
 };
 
 export default function App() {
-  const [timeLeft, setTimeLeft] = useState(3600); // 1 hour
+  const [timeLeft, setTimeLeft] = useState(3600);
   const [isGlitching, setIsGlitching] = useState(false);
   const [accessGranted, setAccessGranted] = useState(false);
+  const [crypticText, setCrypticText] = useState("AWAITING SIGNAL");
+  const [started, setStarted] = useState(false);
+
+  // Initialize Audio on first click anywhere
+  useEffect(() => {
+    const handleFirstClick = () => {
+      if(!started) {
+        audioCtrl.play();
+        setStarted(true);
+      }
+    };
+    window.addEventListener('click', handleFirstClick);
+    return () => window.removeEventListener('click', handleFirstClick);
+  }, [started]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -157,55 +262,85 @@ export default function App() {
 
   useEffect(() => {
     const glitchInterval = setInterval(() => {
-      if (Math.random() > 0.7) {
+      // Glitches are rarer but more intense
+      if (Math.random() > 0.8) {
         setIsGlitching(true);
-        setTimeout(() => setIsGlitching(false), 200 + Math.random() * 500);
+        if(started) audioCtrl.triggerGlitch();
+        
+        // Scramble text
+        const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*";
+        let scrambled = "";
+        for(let i=0; i<15; i++) scrambled += chars.charAt(Math.floor(Math.random() * chars.length));
+        setCrypticText(scrambled);
+
+        setTimeout(() => {
+          setIsGlitching(false);
+          setCrypticText("AWAITING SIGNAL");
+        }, 150 + Math.random() * 400);
       }
-    }, 3000);
+    }, 4000);
     return () => clearInterval(glitchInterval);
-  }, []);
+  }, [started]);
 
   const formatTime = (seconds) => {
     const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
     const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
     const s = (seconds % 60).toString().padStart(2, '0');
-    return \`\${h}:\${m}:\${s}\`;
+    return `${h}:${m}:${s}`;
   };
 
-  const handleSecretClick = () => {
-    if (isGlitching) {
+  const handleArtifactInteract = (e) => {
+    e.stopPropagation();
+    // Game mechanic: Must click EXACTLY on the artifact DURING a glitch
+    if (isGlitching && !accessGranted) {
       setAccessGranted(true);
+      if(started) {
+        // Play success sound logic
+        audioCtrl.osc1.frequency.linearRampToValueAtTime(200, audioCtrl.ctx.currentTime + 1);
+      }
     }
   };
 
   return (
-    <div className="container" onClick={handleSecretClick}>
-      <Canvas camera={{ position: [0, 0, 5] }} style={{ position: 'absolute', top: 0, left: 0, zIndex: 0 }}>
-        <ambientLight intensity={0.5} />
-        <SignalArtifact isGlitching={isGlitching} />
+    <div className="container">
+      {!started && (
+        <div className="start-overlay">
+          <p>CLICK TO INITIALIZE FREQUENCY</p>
+        </div>
+      )}
+
+      <Canvas camera={{ position: [0, 0, 6] }} style={{ position: 'absolute', top: 0, left: 0, zIndex: 0 }}>
+        <ambientLight intensity={0.2} />
+        <SignalArtifact isGlitching={isGlitching} onInteract={handleArtifactInteract} />
       </Canvas>
 
       <div className="overlay" style={{ pointerEvents: 'none' }}>
-        <h1 className={isGlitching ? 'glitch-text' : ''}>
-          {accessGranted ? "ARCHITECT CONSOLE ACCESSED" : "SIGNAL IN"}
-        </h1>
+        <div className="top-ui">
+          <span className="cryptic">{crypticText}</span>
+          <span className="coords">LAT 45.29 / LON 33.03</span>
+        </div>
         
         {!accessGranted && (
-          <div className={\`timer \${isGlitching ? 'timer-glitch' : ''}\`}>
-            {formatTime(timeLeft)}
+          <div className={`timer-container ${isGlitching ? 'timer-glitch' : ''}`}>
+            <div className="timer-label">EST. MATERIALIZATION</div>
+            <div className="timer">{formatTime(timeLeft)}</div>
           </div>
         )}
 
         {accessGranted && (
           <div className="granted-box">
-            <p>YOU FOUND THE LOST SIGNAL</p>
-            <button className="visa-btn" style={{ pointerEvents: 'auto' }}>OBTAIN SBT VISA</button>
+            <h2 className="glitch-text-permanent">SIGNAL INTERCEPTED</h2>
+            <p>THE ARK AWAITS.</p>
+            <div className="terminal-line">> Generating SBT Visa...</div>
+            <button className="visa-btn" style={{ pointerEvents: 'auto' }}>CONNECT TO BOT</button>
           </div>
         )}
       </div>
       
-      {/* VCR scanline effect */}
+      {/* VCR scanlines and Grain */}
+      <div className="vhs-overlay"></div>
       <div className="scanlines"></div>
+      {isGlitching && <div className="chromatic-aberration"></div>}
     </div>
   );
 }
