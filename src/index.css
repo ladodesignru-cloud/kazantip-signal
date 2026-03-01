@@ -179,3 +179,18 @@ body {
   from { opacity: 0; transform: translateY(20px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+.shadow-cursor {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background-color: #FF4500;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 15;
+  box-shadow: 0 0 15px 5px rgba(255, 69, 0, 0.5);
+  transform: translate(-50%, -50%);
+  opacity: 0.6;
+  mix-blend-mode: screen;
+  transition: top 0.1s linear, left 0.1s linear;
+}

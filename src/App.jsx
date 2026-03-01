@@ -1,6 +1,7 @@
 import React, { useRef, useMemo, useState, useEffect } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { io } from 'socket.io-client';
 import './index.css';
 
 // --- GLSL SHADERS ---
@@ -123,16 +124,15 @@ class AudioController {
     if (this.initialized) return;
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     
-    // Low ominous drone
     this.osc1 = this.ctx.createOscillator();
     this.osc2 = this.ctx.createOscillator();
     this.gain = this.ctx.createGain();
     
     this.osc1.type = 'sine';
-    this.osc1.frequency.setValueAtTime(43.65, this.ctx.currentTime); // C1 ish
+    this.osc1.frequency.setValueAtTime(43.65, this.ctx.currentTime);
     
     this.osc2.type = 'sawtooth';
-    this.osc2.frequency.setValueAtTime(44.0, this.ctx.currentTime); // Slight detune for beating
+    this.osc2.frequency.setValueAtTime(44.0, this.ctx.currentTime);
     
     this.gain.gain.setValueAtTime(0, this.ctx.currentTime);
     
@@ -153,7 +153,6 @@ class AudioController {
 
   triggerGlitch() {
     if(!this.initialized) return;
-    // Sudden spike in frequency and volume
     this.osc2.frequency.setValueAtTime(150, this.ctx.currentTime);
     this.osc2.frequency.exponentialRampToValueAtTime(44.0, this.ctx.currentTime + 0.5);
     this.gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
@@ -181,7 +180,6 @@ const SignalArtifact = ({ isGlitching, onInteract }) => {
     if (meshRef.current) {
       meshRef.current.material.uniforms.uTime.value = clock.getElapsedTime();
       
-      // Monolith rotation
       groupRef.current.rotation.y = clock.getElapsedTime() * 0.1;
       groupRef.current.rotation.x = Math.sin(clock.getElapsedTime() * 0.2) * 0.2;
       
@@ -207,15 +205,12 @@ const SignalArtifact = ({ isGlitching, onInteract }) => {
 
   return (
     <group ref={groupRef}>
-      {/* Invisible larger hit box for easier clicking */}
       <mesh onClick={onInteract} visible={false}>
         <sphereGeometry args={[2.5, 16, 16]} />
         <meshBasicMaterial />
       </mesh>
       
-      {/* The main Monolith/Artifact */}
       <mesh ref={meshRef} scale={[1, 1.8, 1]}>
-        {/* An octahedron gives a very ancient, alien monolith vibe */}
         <octahedronGeometry args={[1, 4]} />
         <shaderMaterial 
           vertexShader={vertexShader}
@@ -225,7 +220,6 @@ const SignalArtifact = ({ isGlitching, onInteract }) => {
         />
       </mesh>
       
-      {/* Orbiting rings */}
       <mesh rotation={[Math.PI/2, 0, 0]} scale={2}>
         <torusGeometry args={[1, 0.01, 16, 100]} />
         <meshBasicMaterial color={isGlitching ? "#FF4500" : "#333"} transparent opacity={isGlitching ? 0.8 : 0.2} />
@@ -240,13 +234,72 @@ export default function App() {
   const [accessGranted, setAccessGranted] = useState(false);
   const [crypticText, setCrypticText] = useState("AWAITING SIGNAL");
   const [started, setStarted] = useState(false);
+  const [population, setPopulation] = useState(1);
+  const [shadows, setShadows] = useState({});
+  const socketRef = useRef(null);
 
-  // Initialize Audio on first click anywhere
   useEffect(() => {
-    const handleFirstClick = () => {
+    // Connect to Presence Server via localtunnel URL
+    socketRef.current = io("https://late-forks-beam.loca.lt", {
+      transports: ["websocket", "polling"],
+    });
+
+    socketRef.current.on('population', (count) => {
+      setPopulation(count);
+    });
+
+    socketRef.current.on('shadow_move', (data) => {
+      setShadows(prev => ({
+        ...prev,
+        [data.id]: { x: data.x, y: data.y, active: true }
+      }));
+    });
+
+    socketRef.current.on('shadow_leave', (id) => {
+      setShadows(prev => {
+        const newShadows = { ...prev };
+        delete newShadows[id];
+        return newShadows;
+      });
+    });
+
+    socketRef.current.on('shadow_spark', (data) => {
+      // Could render a flash here
+    });
+
+    return () => {
+      if (socketRef.current) socketRef.current.disconnect();
+    };
+  }, []);
+
+  // Track and emit our cursor movement
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!started || !socketRef.current) return;
+      const x = e.clientX / window.innerWidth;
+      const y = e.clientY / window.innerHeight;
+      
+      // Throttle emits slightly by only sending 1 in N updates or on interval
+      if (Math.random() > 0.5) {
+        socketRef.current.emit('move', { x, y });
+      }
+    };
+    
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, [started]);
+
+  useEffect(() => {
+    const handleFirstClick = (e) => {
       if(!started) {
         audioCtrl.play();
         setStarted(true);
+      }
+      
+      if (started && socketRef.current) {
+        const x = e.clientX / window.innerWidth;
+        const y = e.clientY / window.innerHeight;
+        socketRef.current.emit('spark', { x, y });
       }
     };
     window.addEventListener('click', handleFirstClick);
@@ -262,12 +315,10 @@ export default function App() {
 
   useEffect(() => {
     const glitchInterval = setInterval(() => {
-      // Glitches are rarer but more intense
       if (Math.random() > 0.8) {
         setIsGlitching(true);
         if(started) audioCtrl.triggerGlitch();
         
-        // Scramble text
         const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*";
         let scrambled = "";
         for(let i=0; i<15; i++) scrambled += chars.charAt(Math.floor(Math.random() * chars.length));
@@ -291,11 +342,9 @@ export default function App() {
 
   const handleArtifactInteract = (e) => {
     e.stopPropagation();
-    // Game mechanic: Must click EXACTLY on the artifact DURING a glitch
     if (isGlitching && !accessGranted) {
       setAccessGranted(true);
       if(started) {
-        // Play success sound logic
         audioCtrl.osc1.frequency.linearRampToValueAtTime(200, audioCtrl.ctx.currentTime + 1);
       }
     }
@@ -309,6 +358,18 @@ export default function App() {
         </div>
       )}
 
+      {/* Render Shadows */}
+      {Object.entries(shadows).map(([id, pos]) => (
+        <div 
+          key={id} 
+          className="shadow-cursor"
+          style={{
+            left: pos.x * window.innerWidth,
+            top: pos.y * window.innerHeight,
+          }}
+        />
+      ))}
+
       <Canvas camera={{ position: [0, 0, 6] }} style={{ position: 'absolute', top: 0, left: 0, zIndex: 0 }}>
         <ambientLight intensity={0.2} />
         <SignalArtifact isGlitching={isGlitching} onInteract={handleArtifactInteract} />
@@ -317,7 +378,7 @@ export default function App() {
       <div className="overlay" style={{ pointerEvents: 'none' }}>
         <div className="top-ui">
           <span className="cryptic">{crypticText}</span>
-          <span className="coords">LAT 45.29 / LON 33.03</span>
+          <span className="coords">CONNECTIONS: {population}</span>
         </div>
         
         {!accessGranted && (
@@ -337,7 +398,6 @@ export default function App() {
         )}
       </div>
       
-      {/* VCR scanlines and Grain */}
       <div className="vhs-overlay"></div>
       <div className="scanlines"></div>
       {isGlitching && <div className="chromatic-aberration"></div>}
