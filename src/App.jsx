@@ -229,7 +229,7 @@ const SignalArtifact = ({ isGlitching, onInteract }) => {
 };
 
 export default function App() {
-  const [timeLeft, setTimeLeft] = useState(3600);
+  const [timeLeft, setTimeLeft] = useState(60); // 1 minute countdown
   const [isGlitching, setIsGlitching] = useState(false);
   const [accessGranted, setAccessGranted] = useState(false);
   const [crypticText, setCrypticText] = useState("AWAITING SIGNAL");
@@ -307,11 +307,12 @@ export default function App() {
   }, [started]);
 
   useEffect(() => {
+    if (!started || timeLeft === 0 || accessGranted) return;
     const timer = setInterval(() => {
       setTimeLeft(prev => (prev > 0 ? prev - 1 : 0));
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [started, timeLeft, accessGranted]);
 
   useEffect(() => {
     const glitchInterval = setInterval(() => {
@@ -354,7 +355,7 @@ export default function App() {
     <div className="container">
       {!started && (
         <div className="start-overlay">
-          <p>CLICK TO INITIALIZE FREQUENCY</p>
+          <p>ВКЛЮЧИТЕ ЗВУК. НАЖМИТЕ ДЛЯ ИНИЦИАЛИЗАЦИИ.</p>
         </div>
       )}
 
@@ -381,20 +382,29 @@ export default function App() {
           <span className="coords">CONNECTIONS: {population}</span>
         </div>
         
-        {!accessGranted && (
+        {!accessGranted && timeLeft > 0 && (
           <div className={`timer-container ${isGlitching ? 'timer-glitch' : ''}`}>
-            <div className="timer-label">EST. MATERIALIZATION</div>
+            <div className="timer-label">ВРЕМЯ ОГРАНИЧЕНО. КАК И ЖИЗНЬ.</div>
             <div className="timer">{formatTime(timeLeft)}</div>
+          </div>
+        )}
+
+        {!accessGranted && timeLeft === 0 && (
+          <div className="granted-box failed-box">
+            <h2 className="glitch-text-permanent">СИГНАЛ УТЕРЯН</h2>
+            <p>Вы слишком долго думали. Ковчег не ждет.</p>
+            <div className="terminal-line">&gt; Попробуйте снова, когда будете готовы действовать...</div>
+            <button className="visa-btn" onClick={() => window.location.reload()} style={{ pointerEvents: 'auto' }}>РЕСТАРТ</button>
           </div>
         )}
 
         {accessGranted && (
           <div className="granted-box">
-            <h2 className="glitch-text-permanent">SIGNAL INTERCEPTED</h2>
-            <p>THE ARK AWAITS.</p>
-            <div className="terminal-line">&gt; Generating connection protocol...</div>
+            <h2 className="glitch-text-permanent">СИГНАЛ ПЕРЕХВАЧЕН</h2>
+            <p>Ковчег ждет.</p>
+            <div className="terminal-line">&gt; Генерация протокола связи...</div>
             <a href="https://t.me/your_kazantip_bot" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
-              <button className="visa-btn" style={{ pointerEvents: 'auto' }}>CONNECT TO ARCHIVIST</button>
+              <button className="visa-btn" style={{ pointerEvents: 'auto' }}>СВЯЗЬ С АРХИВАРИУСОМ</button>
             </a>
           </div>
         )}
