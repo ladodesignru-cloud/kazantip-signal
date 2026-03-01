@@ -392,8 +392,10 @@ export default function App() {
           <div className="granted-box">
             <h2 className="glitch-text-permanent">SIGNAL INTERCEPTED</h2>
             <p>THE ARK AWAITS.</p>
-            <div className="terminal-line">&gt; Generating SBT Visa...</div>
-            <button className="visa-btn" style={{ pointerEvents: 'auto' }}>CONNECT TO BOT</button>
+            <div className="terminal-line">&gt; Generating connection protocol...</div>
+            <a href="https://t.me/your_kazantip_bot" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
+              <button className="visa-btn" style={{ pointerEvents: 'auto' }}>CONNECT TO ARCHIVIST</button>
+            </a>
           </div>
         )}
       </div>
