@@ -331,7 +331,7 @@ export default function App() {
           <div className="granted-box">
             <h2 className="glitch-text-permanent">SIGNAL INTERCEPTED</h2>
             <p>THE ARK AWAITS.</p>
-            <div className="terminal-line">> Generating SBT Visa...</div>
+            <div className="terminal-line">&gt; Generating SBT Visa...</div>
             <button className="visa-btn" style={{ pointerEvents: 'auto' }}>CONNECT TO BOT</button>
           </div>
         )}
