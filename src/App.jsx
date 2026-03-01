@@ -240,7 +240,7 @@ export default function App() {
 
   useEffect(() => {
     // Connect to Presence Server via localtunnel URL
-    socketRef.current = io("https://late-forks-beam.loca.lt", {
+    socketRef.current = io("https://sweet-bushes-tease.loca.lt", {
       transports: ["websocket", "polling"],
     });
 
