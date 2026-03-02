@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monolith V1 - Proto</title>
+    <style>
+        body { margin: 0; background: #000; overflow: hidden; font-family: sans-serif; }
+        #info { position: absolute; top: 20px; left: 20px; color: #fff; text-transform: uppercase; letter-spacing: 2px; font-size: 10px; opacity: 0.5; }
+    </style>
+</head>
+<body>
+    <div id="info">Monolith V1 / Kerry / Kazantip Signal</div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        let scene, camera, renderer, monolith, points = [];
+        let mouse = new THREE.Vector2();
+        let audioCtx, oscillator, gainNode;
+
+        function initAudio() {
+            if (audioCtx) return;
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            oscillator = audioCtx.createOscillator();
+            gainNode = audioCtx.createGain();
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
+            gainNode.gain.setValueAtTime(0.01, audioCtx.currentTime); // low volume
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            oscillator.start();
+        }
+
+        function updateAudio() {
+            if (oscillator) {
+                const freq = 100 + (mouse.x + 1) * 200 + (mouse.y + 1) * 300;
+                oscillator.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.1);
+            }
+        }
+
+        function init() {
+            window.addEventListener('click', () => {
+                initAudio();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+            });
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // 1. Monolith
+            const geometry = new THREE.BoxGeometry(2, 5, 0.5);
+            const material = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0 },
+                    color: { value: new THREE.Color(0x0a0a0a) }
+                },
+                vertexShader: `
+                    varying vec2 vUv;
+                    void main() {
+                        vUv = uv;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform float time;
+                    varying vec2 vUv;
+                    void main() {
+                        float pulse = sin(time * 2.0) * 0.1 + 0.1;
+                        vec3 col = vec3(0.02, 0.02, 0.02) + vec3(0.0, 0.3, 0.5) * pulse * (1.0 - vUv.y);
+                        gl_FragColor = vec4(col, 1.0);
+                    }
+                `
+            });
+            monolith = new THREE.Mesh(geometry, material);
+            scene.add(monolith);
+
+            // 2. Lights
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
+            scene.add(ambientLight);
+            const pointLight = new THREE.PointLight(0xff00ff, 2, 10);
+            pointLight.position.set(2, 2, 2);
+            scene.add(pointLight);
+
+            // 3. Nodes (Interactive Points)
+            for(let i=0; i<5; i++) {
+                const dotGeo = new THREE.SphereGeometry(0.05, 16, 16);
+                const dotMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
+                const dot = new THREE.Mesh(dotGeo, dotMat);
+                dot.position.set(
+                    (Math.random()-0.5) * 1.5,
+                    (Math.random()-0.5) * 4,
+                    0.26
+                );
+                monolith.add(dot);
+                points.push(dot);
+            }
+
+            camera.position.z = 7;
+
+            window.addEventListener('mousemove', (e) => {
+                mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            });
+
+            animate();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            monolith.rotation.y += 0.005;
+            
+            // Audio-reactive visual simulation
+            const time = Date.now() * 0.001;
+            monolith.scale.x = 1 + Math.sin(time) * 0.02;
+
+            if (monolith.material.uniforms) {
+                monolith.material.uniforms.time.value = time;
+            }
+
+            updateAudio();
+
+            renderer.render(scene, camera);
+        }
+
+        init();
+    </script>
+</body>
+</html>
