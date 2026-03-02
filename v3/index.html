@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Monolith V3 - Activation Signal</title>
+    <style>
+        body { margin: 0; background: #000; overflow: hidden; font-family: 'Courier New', Courier, monospace; }
+        #info { position: absolute; top: 20px; left: 20px; color: #00ffff; text-transform: uppercase; letter-spacing: 2px; font-size: 10px; opacity: 0.7; pointer-events: none; z-index: 10; }
+        #hint { position: absolute; bottom: 30px; width: 100%; text-align: center; color: #fff; font-size: 12px; letter-spacing: 1px; opacity: 0.5; pointer-events: none; z-index: 10; transition: opacity 1s; }
+        #counter { position: absolute; top: 20px; right: 20px; color: #fff; font-size: 14px; letter-spacing: 2px; opacity: 0.8; z-index: 10; }
+        #overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #fff; display: none; z-index: 100; opacity: 0; }
+        #visa-button { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            padding: 20px 40px; border: 1px solid #fff; color: #fff; background: none;
+            text-transform: uppercase; letter-spacing: 5px; cursor: pointer; display: none; z-index: 101;
+            font-size: 18px; transition: all 0.5s;
+        }
+        #visa-button:hover { background: #fff; color: #000; box-shadow: 0 0 30px #fff; }
+    </style>
+</head>
+<body>
+    <div id="info">SIGNAL V3 / ACTIVATE THE CORE</div>
+    <div id="counter">SIGNAL: <span id="dots-found">0</span>/5</div>
+    <div id="hint">SEARCH THE SURFACE. FIND THE NODES.</div>
+    <div id="overlay"></div>
+    <button id="visa-button" onclick="window.location.href='https://t.me/lado_clawd_bot'">Get Signal Visa</button>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        let scene, camera, renderer, monolith, points = [];
+        let mouse = new THREE.Vector2(0, 0);
+        let raycaster = new THREE.Raycaster();
+        let audioCtx, oscillator, gainNode, filter, noiseNode;
+        let activatedCount = 0;
+        let isFlashing = false;
+
+        function initAudio() {
+            if (audioCtx) return;
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            oscillator = audioCtx.createOscillator();
+            gainNode = audioCtx.createGain();
+            filter = audioCtx.createBiquadFilter();
+
+            oscillator.type = 'sawtooth';
+            filter.type = 'lowpass';
+            gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+            gainNode.gain.linearRampToValueAtTime(0.08, audioCtx.currentTime + 1);
+
+            oscillator.connect(filter);
+            filter.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            oscillator.start();
+
+            // Background rumble
+            const bufferSize = 2 * audioCtx.sampleRate,
+                noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate),
+                output = noiseBuffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) { output[i] = Math.random() * 2 - 1; }
+            noiseNode = audioCtx.createBufferSource();
+            noiseNode.buffer = noiseBuffer;
+            noiseNode.loop = true;
+            const noiseFilter = audioCtx.createBiquadFilter();
+            noiseFilter.type = 'lowpass';
+            noiseFilter.frequency.value = 100;
+            noiseNode.connect(noiseFilter);
+            noiseFilter.connect(gainNode);
+            noiseNode.start();
+
+            document.getElementById('hint').style.opacity = 0;
+        }
+
+        function handleInput(x, y) {
+            mouse.x = (x / window.innerWidth) * 2 - 1;
+            mouse.y = -(y / window.innerHeight) * 2 + 1;
+            
+            if (oscillator && !isFlashing) {
+                const freq = 50 + (mouse.x + 1) * 30 + (activatedCount * 20);
+                const filterFreq = 100 + (mouse.y + 1) * 1000 + (activatedCount * 500);
+                oscillator.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.1);
+                filter.frequency.setTargetAtTime(filterFreq, audioCtx.currentTime, 0.1);
+            }
+            checkNodes();
+        }
+
+        function checkNodes() {
+            if (isFlashing) return;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(points);
+            if (intersects.length > 0) {
+                const node = intersects[0].object;
+                if (!node.userData.active) {
+                    node.userData.active = true;
+                    node.material.color.setHex(0xffffff);
+                    node.scale.set(3, 3, 3);
+                    activatedCount++;
+                    document.getElementById('dots-found').innerText = activatedCount;
+                    
+                    // Interaction sound (ping)
+                    if (audioCtx) {
+                        const ping = audioCtx.createOscillator();
+                        const pGain = audioCtx.createGain();
+                        ping.type = 'sine';
+                        ping.frequency.setValueAtTime(880 + activatedCount * 440, audioCtx.currentTime);
+                        pGain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                        pGain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
+                        ping.connect(pGain);
+                        pGain.connect(audioCtx.destination);
+                        ping.start();
+                        ping.stop(audioCtx.currentTime + 0.5);
+                    }
+
+                    if (activatedCount === 5) triggerFlash();
+                }
+            }
+        }
+
+        function triggerFlash() {
+            isFlashing = true;
+            const overlay = document.getElementById('overlay');
+            const btn = document.getElementById('visa-button');
+            overlay.style.display = 'block';
+            
+            // Audio buildup
+            oscillator.frequency.exponentialRampToValueAtTime(10000, audioCtx.currentTime + 2.5);
+            gainNode.gain.linearRampToValueAtTime(0.5, audioCtx.currentTime + 2.5);
+
+            // Flash visual sequence
+            let intensity = 0;
+            const interval = setInterval(() => {
+                intensity += 0.02;
+                overlay.style.opacity = intensity;
+                if (intensity >= 1) {
+                    clearInterval(interval);
+                    setTimeout(() => {
+                        btn.style.display = 'block';
+                        btn.style.opacity = 1;
+                        gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.5);
+                    }, 500);
+                }
+            }, 50);
+        }
+
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.body.appendChild(renderer.domElement);
+
+            // 1. Ellipsoid
+            const geometry = new THREE.SphereGeometry(1, 64, 64);
+            const material = new THREE.ShaderMaterial({
+                uniforms: { time: { value: 0 } },
+                vertexShader: `
+                    varying vec2 vUv;
+                    varying vec3 vNormal;
+                    void main() {
+                        vUv = uv;
+                        vNormal = normalize(normalMatrix * normal);
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform float time;
+                    varying vec2 vUv;
+                    varying vec3 vNormal;
+                    void main() {
+                        float fresnel = pow(1.0 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 4.0);
+                        float pulses = sin(vUv.y * 30.0 - time * 3.0) * 0.5 + 0.5;
+                        vec3 color = mix(vec3(0.01), vec3(0.0, 0.4, 0.6), pulses * 0.2);
+                        color += vec3(0.5, 0.2, 0.8) * fresnel;
+                        gl_FragColor = vec4(color, 1.0);
+                    }
+                `
+            });
+            monolith = new THREE.Mesh(geometry, material);
+            monolith.scale.set(2, 4.5, 2);
+            scene.add(monolith);
+
+            // 2. Add 5 Hidden Nodes
+            for(let i=0; i<5; i++) {
+                const nodeGeo = new THREE.SphereGeometry(0.12, 16, 16);
+                const nodeMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.3 });
+                const node = new THREE.Mesh(nodeGeo, nodeMat);
+                
+                // Position randomly on the ellipsoid surface
+                const phi = Math.random() * Math.PI * 2;
+                const theta = Math.random() * Math.PI;
+                node.position.set(
+                    1.9 * Math.sin(theta) * Math.cos(phi),
+                    4.4 * Math.cos(theta),
+                    1.9 * Math.sin(theta) * Math.sin(phi)
+                );
+                node.userData = { active: false };
+                monolith.add(node);
+                points.push(node);
+            }
+
+            camera.position.z = 10;
+
+            window.addEventListener('mousemove', (e) => handleInput(e.clientX, e.clientY));
+            window.addEventListener('touchstart', (e) => {
+                initAudio();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                handleInput(e.touches[0].clientX, e.touches[0].clientY);
+            });
+            window.addEventListener('touchmove', (e) => {
+                handleInput(e.touches[0].clientX, e.touches[0].clientY);
+            });
+            window.addEventListener('click', initAudio);
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            animate();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const t = Date.now() * 0.001;
+            if (!isFlashing) {
+                monolith.rotation.y += 0.003;
+                monolith.rotation.z = Math.sin(t * 0.5) * 0.1;
+            } else {
+                monolith.rotation.y += 0.2; // Spin fast during flash
+            }
+            
+            if (monolith.material.uniforms) {
+                monolith.material.uniforms.time.value = t;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        init();
+    </script>
+</body>
+</html>
