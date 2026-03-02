@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Monolith V5 - ARCHAEOLOGY OF HAPPINESS</title>
+    <style>
+        body { margin: 0; background: #000; overflow: hidden; font-family: 'Courier New', Courier, monospace; color: #ff0; }
+        #info { position: absolute; top: 20px; left: 20px; text-transform: uppercase; letter-spacing: 4px; font-size: 10px; opacity: 0.8; z-index: 10; text-shadow: 2px 0 #f0f, -2px 0 #0ff; }
+        #hint { position: absolute; bottom: 30px; width: 100%; text-align: center; font-size: 12px; letter-spacing: 2px; opacity: 0.6; z-index: 10; animation: blink 0.1s infinite; }
+        @keyframes blink { 0% { opacity: 0.2; } 50% { opacity: 0.8; } 100% { opacity: 0.2; } }
+        #vhs-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 100; opacity: 0.1; background: url('https://media.giphy.com/media/oEI9uWUicKgZq/giphy.gif'); background-size: cover; }
+        #visa-button { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            padding: 15px 30px; border: 2px solid #ff0; color: #ff0; background: #000;
+            text-transform: uppercase; letter-spacing: 8px; cursor: pointer; display: none; z-index: 101;
+            font-size: 20px; box-shadow: 0 0 20px #ff0; font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">SIGNAL V5 / ARCHAEOLOGY OF HAPPINESS / KAZANTIP</div>
+    <div id="hint">TAP TO CONNECT TO THE SIGNAL</div>
+    <div id="vhs-overlay"></div>
+    <button id="visa-button" onclick="window.location.href='https://t.me/lado_clawd_bot'">ENTER Z-REPUBLIC</button>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        const vertexShader = `
+            uniform float uTime;
+            uniform float uPulse;
+            varying vec2 vUv;
+            varying vec3 vNormal;
+            
+            float random(vec2 st) {
+                return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+            }
+
+            void main() {
+                vUv = uv;
+                vNormal = normalize(normalMatrix * normal);
+                
+                vec3 pos = position;
+                // Glitch displacement
+                if (random(vec2(uTime, floor(pos.y * 10.0))) > 0.98) {
+                    pos.x += sin(uTime * 50.0) * 0.2;
+                }
+                
+                // Beat scale
+                pos *= 1.0 + uPulse * 0.05;
+                
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+            }
+        `;
+
+        const fragmentShader = `
+            uniform float uTime;
+            uniform float uPulse;
+            varying vec2 vUv;
+            varying vec3 vNormal;
+
+            float noise(vec2 p) {
+                return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+            }
+
+            void main() {
+                // Concrete / Rust texture base
+                float n = noise(vUv * 20.0 + uTime * 0.01);
+                vec3 color = mix(vec3(0.05), vec3(0.15), n);
+                
+                // Yellow Glow Stripes (Z-Style)
+                float stripes = step(0.98, sin(vUv.y * 40.0 + uTime * 2.0));
+                color += vec3(1.0, 1.0, 0.0) * stripes * uPulse;
+                
+                // Scanlines
+                float scan = sin(gl_FragCoord.y * 1.5) * 0.1;
+                color -= scan;
+                
+                // Fresnel
+                float fresnel = pow(1.0 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 3.0);
+                color += vec3(1.0, 1.0, 0.0) * fresnel * 0.3;
+
+                gl_FragColor = vec4(color, 1.0);
+            }
+        `;
+
+        let scene, camera, renderer, monolith;
+        let audioCtx, oscillator, gain, kick;
+        let pulseValue = 0;
+
+        function initAudio() {
+            if (audioCtx) return;
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            gain = audioCtx.createGain();
+            gain.connect(audioCtx.destination);
+            gain.gain.value = 0.2;
+
+            // Industrial Drone
+            const drone = audioCtx.createOscillator();
+            drone.type = 'sawtooth';
+            const droneFilter = audioCtx.createBiquadFilter();
+            droneFilter.type = 'lowpass';
+            droneFilter.frequency.value = 150;
+            drone.connect(droneFilter);
+            droneFilter.connect(gain);
+            drone.start();
+
+            // Rhythmic Pulse (Kick)
+            setInterval(() => {
+                const now = audioCtx.currentTime;
+                const osc = audioCtx.createOscillator();
+                const g = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.exponentialRampToValueAtTime(40, now + 0.2);
+                g.gain.setValueAtTime(0.5, now);
+                g.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+                osc.connect(g);
+                g.connect(gain);
+                osc.start(now);
+                osc.stop(now + 0.2);
+                
+                // Sync visual pulse
+                pulseValue = 1.0;
+            }, 600); // 100 BPM approx
+
+            document.getElementById('hint').style.display = 'none';
+        }
+
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: false });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            const geometry = new THREE.BoxGeometry(2.5, 6, 0.8, 32, 32, 32);
+            const material = new THREE.ShaderMaterial({
+                uniforms: {
+                    uTime: { value: 0 },
+                    uPulse: { value: 0 }
+                },
+                vertexShader,
+                fragmentShader
+            });
+            monolith = new THREE.Mesh(geometry, material);
+            scene.add(monolith);
+
+            camera.position.z = 8;
+
+            window.addEventListener('click', () => {
+                initAudio();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+            });
+            
+            window.addEventListener('touchstart', () => {
+                initAudio();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+            });
+
+            animate();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const t = Date.now() * 0.001;
+            
+            pulseValue *= 0.9; // Decay visual pulse
+            
+            monolith.material.uniforms.uTime.value = t;
+            monolith.material.uniforms.uPulse.value = pulseValue;
+            
+            monolith.rotation.y = t * 0.1;
+            
+            // Random shake on pulse
+            if (pulseValue > 0.8) {
+                camera.position.x = (Math.random() - 0.5) * 0.1;
+                camera.position.y = (Math.random() - 0.5) * 0.1;
+            } else {
+                camera.position.x = 0;
+                camera.position.y = 0;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        init();
+    </script>
+</body>
+</html>
